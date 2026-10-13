@@ -1,16 +1,16 @@
 # Plantilla: no crea recursos hasta que el usuario la aplique en Render.
-# Starter y PostgreSQL Basic son servicios de pago; revisar el precio en Render.
+# Prueba gratuita: backend con suspensión y PostgreSQL con caducidad.
+# Correo de prueba por HTTPS con Resend; Gmail SMTP no funciona en Render Free.
 services:
   - type: web
     name: organizador-api
     runtime: node
-    plan: starter
+    plan: free
     region: oregon
     rootDir: backend
     buildCommand: npm ci --omit=dev
     startCommand: npm start
     healthCheckPath: /ready
-    numInstances: 1
     envVars:
       - key: NODE_ENV
         value: production
@@ -33,18 +33,15 @@ services:
         sync: false
       - key: APP_TIME_ZONE
         value: America/Mexico_City
-      - key: EMAIL_SERVICE
-        value: gmail
+      # El remitente de prueba de Resend solo envía al correo de tu cuenta Resend.
       - key: EMAIL_FROM
-        sync: false
-      - key: EMAIL_USER
-        sync: false
-      - key: EMAIL_PASSWORD
+        value: Organizador <onboarding@resend.dev>
+      - key: RESEND_API_KEY
         sync: false
 
 databases:
   - name: organizador-db
-    plan: basic-256mb
+    plan: free
     region: oregon
     databaseName: organizador
     user: organizador

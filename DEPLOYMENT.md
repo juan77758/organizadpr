@@ -1,6 +1,6 @@
 # Publicar el organizador para varios usuarios
 
-Preparación incluida: frontend para Vercel, servidor permanente para Render, PostgreSQL persistente y recordatorios cada minuto. Este documento y los archivos de configuración no publican nada por sí solos.
+Preparación incluida: frontend para Vercel, backend para Render (el plan Free se suspende por inactividad), PostgreSQL persistente y recordatorios cada minuto. Este documento y los archivos de configuración no publican nada por sí solos.
 
 ## 1. Llevar los cambios a GitHub
 
@@ -28,7 +28,18 @@ No pongas DATABASE_URL, JWT_SECRET, EMAIL_PASSWORD o RESEND_API_KEY en Vercel ni
 
 En Render elige **New → Blueprint** e importa el repositorio. Render lee `render.yaml` desde la raíz.
 
-La plantilla propone **Web Service Starter** y **PostgreSQL Basic**: ambos tienen costo. Revisa el precio que muestre Render antes de crear recursos. Aquí no se ha contratado ningún servicio. Un backend que se duerme no puede garantizar los avisos por minuto; el plan gratuito también puede restringir SMTP.
+La plantilla actual propone **Web Service Free** y **PostgreSQL Free**, para una prueba sin contratar los planes de pago anteriores. Comprueba que ambos aparecen como **Free** antes de desplegar. Render puede solicitar verificación de cuenta o tarjeta incluso con recursos gratuitos; cambiar la plantilla no garantiza evitar una comprobación de identidad.
+
+El backend Free se suspende por inactividad: los recordatorios no se ejecutan mientras está dormido y pueden llegar tarde o perder su ventana. La base gratuita caduca; revisa la fecha que indique Render y conserva una copia de los datos que quieras mantener. No uses este despliegue de prueba como almacenamiento permanente.
+
+Render Free bloquea los puertos habituales de SMTP. Por eso esta plantilla utiliza **Resend por HTTPS** en lugar de Gmail SMTP. Para probar sin comprar un dominio:
+
+1. Crea una cuenta gratuita en Resend con el correo que recibirá la prueba.
+2. Genera una API key y escríbela únicamente en el campo privado RESEND_API_KEY de Render. No la compartas en el chat ni la pongas en GitHub/Vercel.
+3. Conserva el remitente `Organizador <onboarding@resend.dev>` de la plantilla.
+4. En la app registra el mismo correo de tu cuenta Resend. El remitente de prueba de Resend solo permite enviar al correo de esa cuenta. Para enviar a otros usuarios necesitas verificar un dominio remitente.
+
+No introduzcas una contraseña de Gmail en este Blueprint: no se utiliza para esta prueba gratuita.
 
 Completa las variables que Render solicite:
 
@@ -36,9 +47,8 @@ Completa las variables que Render solicite:
 | --- | --- |
 | FRONTEND_URL | Dominio HTTPS estable de Vercel, sin `/` al final |
 | APP_URL | El mismo dominio de Vercel |
-| EMAIL_USER | Cuenta Gmail que envía los recordatorios |
-| EMAIL_PASSWORD | NUEVA contraseña de aplicación de Gmail, introducida solo en Render |
-| EMAIL_FROM | `Organizador <tu-cuenta@gmail.com>`; utiliza la misma cuenta remitente |
+| RESEND_API_KEY | API key creada en Resend, introducida solo en Render |
+| EMAIL_FROM | Ya configurado: `Organizador <onboarding@resend.dev>` para probar con el correo de tu cuenta Resend |
 
 Render genera JWT_SECRET y enlaza DATABASE_URL al PostgreSQL del Blueprint. Guarda JWT_SECRET estable: cambiarlo invalida las sesiones. DB_SSL=false está previsto únicamente para la **URL interna** de Render y la misma región/red privada. Para una URL externa utiliza DB_SSL=true y el certificado CA oficial si lo requiere el proveedor. Nunca desactives la verificación del certificado de una conexión TLS.
 
@@ -48,7 +58,7 @@ Cuando aparezca la URL del backend, actualiza las dos variables de Vercel y vuel
 
 ### Alternativa de correo mediante HTTPS
 
-Si el hosting impide SMTP o quieres un proveedor de correo transaccional, el backend también admite **Resend**:
+La prueba gratuita ya usa **Resend**. Para habilitar correos a más destinatarios:
 
 1. Verifica un dominio remitente en Resend siguiendo su configuración DNS.
 2. Añade RESEND_API_KEY como variable privada en Render.
@@ -61,13 +71,13 @@ La clave de Resend tiene prioridad sobre Gmail SMTP. El destinatario puede segui
 1. Comprueba que `/ready` en la URL del backend responde `{"status":"ready"}`.
 2. Abre el frontend, registra dos cuentas con correos distintos y confirma que cada una ve solo sus actividades.
 3. Crea una tarea para dentro de tres minutos. Mantén abierta la app y haz clic dentro de ella para activar el audio. El aviso se revisa cada minuto dentro de una ventana de cinco minutos antes y después del vencimiento; puede llegar antes de la hora seleccionada.
-4. Confirma correo real, campana y alarma de tres secuencias. La app cerrada no reproduce sonidos; el backend encendido sí puede enviar el correo.
+4. Confirma correo real, campana y alarma de tres secuencias. La app cerrada no reproduce sonidos; el backend activo sí puede enviar el correo. Render Free no ejecuta cron mientras el servicio está dormido.
 5. Cambia la tarea de columna, recarga y confirma que conserva su estado.
 6. Reinicia/redeploya el backend y verifica que el usuario y la tarea siguen guardados. Al recuperar la sesión, abre la campana para ver los avisos guardados; no se garantiza reproducir sonidos de eventos que ocurrieron mientras la app estuvo desconectada.
 
 En producción se ocultan los botones de prueba y sus endpoints manuales responden 404. Los correos fallidos se reintentan hasta cinco intentos en las primeras 24 horas, sin volver a emitir el aviso de la campana. Con Resend se envía una clave de idempotencia. Gmail SMTP no garantiza exactamente un envío si el proceso se interrumpe entre la aceptación del correo y su registro en PostgreSQL.
 
-Revisa los límites de envío y las políticas de uso de Gmail. Para mayor volumen es preferible un proveedor transaccional con dominio verificado. Usa una sola instancia del backend con este Blueprint. Una ampliación a varias instancias también requiere adaptar Socket.IO para compartir las salas.
+Para un uso estable cambia el servicio a un plan que permanezca activo y usa una base sin caducidad. Si eliges Gmail SMTP en un plan compatible, configura EMAIL_SERVICE=gmail, EMAIL_USER, EMAIL_PASSWORD y EMAIL_FROM, y elimina RESEND_API_KEY para que Gmail sea el proveedor seleccionado. Revisa los límites de envío del proveedor. Usa una sola instancia del backend con este Blueprint. Una ampliación a varias instancias también requiere adaptar Socket.IO para compartir las salas.
 
 ## Desarrollo local con PostgreSQL
 
