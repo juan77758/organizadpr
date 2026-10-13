@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const { parseDueDate } = require('../utils/dateTime');
 
 // Listar todas las actividades del usuario
 exports.getActivities = async (req, res, next) => {
@@ -38,7 +39,7 @@ exports.getActivities = async (req, res, next) => {
 
 // Crear nueva actividad
 exports.createActivity = async (req, res, next) => {
-  const { title, description, due_date, priority, category } = req.body;
+  const { title, description, due_date, time_zone, priority, category } = req.body;
 
   try {
     // Validación
@@ -50,16 +51,10 @@ exports.createActivity = async (req, res, next) => {
       return res.status(400).json({ error: 'Prioridad inválida' });
     }
 
-    // Convertir la fecha de hora local (México UTC-6) a UTC
-    // El frontend envía: "2026-10-12T16:05" (4:05 PM hora local México)
-    // PostgreSQL necesita: "2026-10-12T22:05:00.000Z" (10:05 PM UTC)
-
-    // Tratamos la fecha como si fuera en timezone de México (UTC-6)
-    const dueDate = new Date(due_date + ':00.000-06:00');
-
-    console.log(`📅 Fecha recibida del frontend: ${due_date} (hora local México)`);
-    console.log(`📅 Fecha guardada en UTC: ${dueDate.toISOString()}`);
-    console.log(`📅 Hora local verificación: ${dueDate.toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })}`);
+    const dueDate = parseDueDate(due_date, time_zone);
+    if (!dueDate) {
+      return res.status(400).json({ error: 'Fecha u zona horaria inválida' });
+    }
 
     const result = await pool.query(
       `INSERT INTO activities (user_id, title, description, due_date, priority, category, status)
@@ -100,7 +95,7 @@ exports.getActivityById = async (req, res, next) => {
 // Actualizar actividad
 exports.updateActivity = async (req, res, next) => {
   const { id } = req.params;
-  const { title, description, due_date, priority, status, category } = req.body;
+  const { title, description, due_date, time_zone, priority, status, category } = req.body;
 
   try {
     // Verificar que la actividad existe y pertenece al usuario
@@ -122,6 +117,13 @@ exports.updateActivity = async (req, res, next) => {
       return res.status(400).json({ error: 'Estado inválido' });
     }
 
+    const dueDate = due_date === undefined || due_date === null
+      ? null
+      : parseDueDate(due_date, time_zone);
+    if (due_date !== undefined && due_date !== null && !dueDate) {
+      return res.status(400).json({ error: 'Fecha u zona horaria inválida' });
+    }
+
     const result = await pool.query(
       `UPDATE activities
        SET title = COALESCE($1, title),
@@ -133,7 +135,7 @@ exports.updateActivity = async (req, res, next) => {
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $7 AND user_id = $8
        RETURNING *`,
-      [title, description, due_date, priority, status, category, id, req.userId]
+      [title, description, dueDate, priority, status, category, id, req.userId]
     );
 
     res.json({

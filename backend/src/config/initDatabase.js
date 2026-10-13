@@ -25,7 +25,7 @@ const createTables = async () => {
         user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
         title VARCHAR(100) NOT NULL,
         description TEXT,
-        due_date TIMESTAMP NOT NULL,
+        due_date TIMESTAMPTZ NOT NULL,
         priority VARCHAR(10) CHECK (priority IN ('alta', 'media', 'baja')),
         status VARCHAR(20) CHECK (status IN ('pendiente', 'en_proceso', 'completado')) DEFAULT 'pendiente',
         category VARCHAR(50),

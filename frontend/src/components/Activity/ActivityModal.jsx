@@ -3,6 +3,13 @@ import { activityService } from '../../services/activityService';
 import { toast } from 'react-toastify';
 import './Activity.css';
 
+const toLocalDateTimeInput = (value) => {
+  const date = new Date(value);
+  const pad = (part) => String(part).padStart(2, '0');
+
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
+
 const ActivityModal = ({ activity, onClose, onSave }) => {
   const [formData, setFormData] = useState({
     title: '',
@@ -19,7 +26,7 @@ const ActivityModal = ({ activity, onClose, onSave }) => {
       setFormData({
         title: activity.title,
         description: activity.description || '',
-        due_date: new Date(activity.due_date).toISOString().slice(0, 16),
+        due_date: toLocalDateTimeInput(activity.due_date),
         priority: activity.priority,
         category: activity.category || '',
       });
@@ -35,11 +42,16 @@ const ActivityModal = ({ activity, onClose, onSave }) => {
     setLoading(true);
 
     try {
+      const payload = {
+        ...formData,
+        time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      };
+
       if (activity) {
-        await activityService.updateActivity(activity.id, formData);
+        await activityService.updateActivity(activity.id, payload);
         toast.success('Actividad actualizada');
       } else {
-        await activityService.createActivity(formData);
+        await activityService.createActivity(payload);
         toast.success('Actividad creada');
       }
       onSave();
