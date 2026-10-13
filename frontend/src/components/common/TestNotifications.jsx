@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import axios from 'axios';
+import api from '../../services/api';
 import { toast } from 'react-toastify';
+import { playAlarmSound } from '../../utils/soundUtils';
 
 const TestNotifications = () => {
   const [loading, setLoading] = useState(false);
@@ -8,12 +9,7 @@ const TestNotifications = () => {
   const testNotification = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      await axios.post(
-        'http://localhost:5001/api/test/test-notification',
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await api.post('/test/test-notification', {});
       toast.success('¡Notificación de prueba enviada! Revisa la campana 🔔');
     } catch (error) {
       toast.error('Error al enviar notificación');
@@ -25,12 +21,7 @@ const TestNotifications = () => {
   const checkActivities = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.post(
-        'http://localhost:5001/api/notifications/check-now',
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const response = await api.post('/notifications/check-now', {});
       toast.success(`✓ ${response.data.message} - Revisa tu email y la campana 🔔`);
     } catch (error) {
       console.error('Error:', error);
@@ -50,6 +41,19 @@ const TestNotifications = () => {
       gap: '10px',
       zIndex: 1000
     }}>
+      <button
+        onClick={async () => {
+          const played = await playAlarmSound();
+          if (played) {
+            toast.info('Sonido iniciado. Si no se escucha, revisa el volumen y si la pestaña está silenciada.');
+          } else {
+            toast.error('El navegador no pudo activar el audio.');
+          }
+        }}
+        style={{ backgroundColor: '#d4af37', padding: '12px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer' }}
+      >
+        Probar sonido
+      </button>
       <button
         onClick={testNotification}
         disabled={loading}

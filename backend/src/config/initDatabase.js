@@ -1,10 +1,12 @@
 const pool = require('./database');
 
 const createTables = async () => {
+  if (!process.env.DATABASE_URL) throw new Error('Configura DATABASE_URL para inicializar PostgreSQL');
   const client = await pool.connect();
 
   try {
     await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock($1)', [704292]);
 
     // Tabla de usuarios
     await client.query(`
@@ -48,6 +50,12 @@ const createTables = async () => {
       )
     `);
 
+    // Actualización idempotente para instalaciones existentes.
+    await client.query("ALTER TABLE notifications ADD COLUMN IF NOT EXISTS email_status VARCHAR(10) NOT NULL DEFAULT 'none'");
+    await client.query("ALTER TABLE notifications ADD COLUMN IF NOT EXISTS email_attempts INTEGER NOT NULL DEFAULT 0");
+    await client.query("ALTER TABLE notifications ADD COLUMN IF NOT EXISTS email_next_attempt_at TIMESTAMPTZ");
+    await client.query("CREATE INDEX IF NOT EXISTS idx_notifications_email_pending ON notifications(email_status, email_next_attempt_at)");
+
     // Crear índices
     await client.query('CREATE INDEX IF NOT EXISTS idx_activities_user_id ON activities(user_id)');
     await client.query('CREATE INDEX IF NOT EXISTS idx_activities_due_date ON activities(due_date)');
@@ -55,6 +63,7 @@ const createTables = async () => {
     await client.query('CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id)');
     await client.query('CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read)');
 
+    await client.query('CREATE INDEX IF NOT EXISTS idx_notifications_activity_type_sent ON notifications(activity_id, type, sent_at)');
     await client.query('COMMIT');
     console.log('✓ Tablas creadas exitosamente');
   } catch (error) {
@@ -63,8 +72,12 @@ const createTables = async () => {
     throw error;
   } finally {
     client.release();
-    process.exit(0);
+
   }
 };
 
-createTables();
+module.exports = { createTables };
+
+if (require.main === module) {
+  createTables().catch(() => { process.exitCode = 1; }).finally(() => pool.end?.());
+}

@@ -1,11 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
+import { DragDropContext, Droppable as BaseDroppable, Draggable } from 'react-beautiful-dnd';
 import { activityService } from '../../services/activityService';
 import ActivityCard from './ActivityCard';
 import ActivityModal from '../Activity/ActivityModal';
 import Filters from './Filters';
 import { toast } from 'react-toastify';
 import './Board.css';
+
+// React 18 StrictMode monta los efectos dos veces en desarrollo.
+// Esperar un frame evita que react-beautiful-dnd pierda el registro de columnas.
+const Droppable = (props) => {
+  const [enabled, setEnabled] = useState(false);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setEnabled(true));
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+  }, []);
+
+  return enabled ? <BaseDroppable {...props} /> : null;
+};
 
 const KanbanBoard = () => {
   const [activities, setActivities] = useState([]);

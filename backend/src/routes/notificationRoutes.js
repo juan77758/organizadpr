@@ -13,6 +13,8 @@ router.patch('/read-all', notificationController.markAllAsRead);
 router.delete('/:id', notificationController.deleteNotification);
 
 // Ruta de prueba para forzar verificación de actividades
-router.post('/check-now', notificationController.checkActivitiesNow);
+if (process.env.NODE_ENV !== 'production') {
+  router.post('/check-now', notificationController.checkActivitiesNow);
+}
 
 module.exports = router;

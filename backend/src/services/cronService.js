@@ -1,29 +1,18 @@
 const cron = require('node-cron');
-const { processReminders, processOverdueActivities, processImminentActivities } = require('./notificationService');
+const notifications = require('./notificationService');
 
-let io = null;
-
-// Configurar tareas programadas
-exports.setupCronJobs = (socketIo) => {
-  io = socketIo;
-
-  // Ejecutar cada minuto para buscar actividades que vencen en los próximos 5 minutos
-  cron.schedule('* * * * *', () => {
-    console.log('🔔 Revisando actividades inminentes...');
-    processImminentActivities(io);
-  });
-
-  // Ejecutar cada hora para buscar actividades que vencen en 24 horas
-  cron.schedule('0 * * * *', () => {
-    console.log('🕐 Ejecutando tarea: Revisar recordatorios 24h');
-    processReminders(io);
-  });
-
-  // Ejecutar cada hora para buscar actividades vencidas
-  cron.schedule('0 * * * *', () => {
-    console.log('🕐 Ejecutando tarea: Revisar actividades vencidas');
-    processOverdueActivities(io);
-  });
-
-  console.log('✓ Tareas cron configuradas (cada minuto + cada hora)');
+exports.setupCronJobs = io => {
+  const run = async () => {
+    try {
+      await notifications.processImminentActivities(io);
+      await notifications.processReminders(io);
+      await notifications.processOverdueActivities(io);
+    } catch (error) {
+      console.error('No se pudieron procesar los recordatorios:', error.code || error.name);
+    }
+  };
+  // Recuperar avisos pendientes al iniciar y revisar una vez por minuto.
+  run();
+  const job = cron.schedule('* * * * *', run, { timezone: 'UTC' });
+  return () => job.stop();
 };

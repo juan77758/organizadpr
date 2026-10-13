@@ -1,7 +1,10 @@
 const nodemailer = require('nodemailer');
 
-// Configurar transporter
+// Gmail SMTP sigue disponible; Resend usa HTTPS cuando el hosting bloquea SMTP.
 const transporter = nodemailer.createTransport({
+  connectionTimeout: 10000,
+  greetingTimeout: 10000,
+  socketTimeout: 15000,
   service: process.env.EMAIL_SERVICE,
   auth: {
     user: process.env.EMAIL_USER,
@@ -10,7 +13,13 @@ const transporter = nodemailer.createTransport({
 });
 
 // Template de email para recordatorio
-const getEmailTemplate = (activity, userName) => {
+const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+}[char]));
+const getEmailTemplate = (sourceActivity, sourceName) => {
+  const activity = { ...sourceActivity };
+  for (const field of ['title', 'description', 'category', 'priority']) activity[field] = escapeHtml(activity[field]);
+  const userName = escapeHtml(sourceName);
   return `
     <!DOCTYPE html>
     <html>
@@ -112,6 +121,7 @@ const getEmailTemplate = (activity, userName) => {
           ${activity.description ? `<div class="activity-detail"><strong>Descripción:</strong> ${activity.description}</div>` : ''}
           <div class="activity-detail">
             <strong>Fecha de vencimiento:</strong> ${new Date(activity.due_date).toLocaleString('es-ES', {
+              timeZone: process.env.APP_TIME_ZONE || 'America/Mexico_City',
               dateStyle: 'full',
               timeStyle: 'short'
             })}
@@ -124,7 +134,7 @@ const getEmailTemplate = (activity, userName) => {
         </div>
 
         <center>
-          <a href="${process.env.APP_URL}" class="btn">Ver en la Aplicación</a>
+          <a href="${escapeHtml(process.env.APP_URL)}" class="btn">Ver en la Aplicación</a>
         </center>
 
         <div class="footer">
@@ -138,26 +148,47 @@ const getEmailTemplate = (activity, userName) => {
 };
 
 // Enviar email de recordatorio
-exports.sendReminderEmail = async (userEmail, userName, activity) => {
+exports.sendReminderEmail = async (userEmail, userName, activity, deliveryId) => {
   try {
     const mailOptions = {
-      from: process.env.EMAIL_FROM,
+      from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
       to: userEmail,
       subject: `🔔 Recordatorio: ${activity.title}`,
       html: getEmailTemplate(activity, userName),
     };
 
-    const info = await transporter.sendMail(mailOptions);
+    let info;
+    if (process.env.RESEND_API_KEY) {
+      const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+          ...(deliveryId ? { 'Idempotency-Key': `notification-${deliveryId}` } : {})
+        },
+        body: JSON.stringify({ ...mailOptions, to: [userEmail] }),
+        signal: AbortSignal.timeout(15000)
+      });
+      if (!response.ok) throw new Error(`El proveedor de correo respondió HTTP ${response.status}`);
+      const data = await response.json();
+      info = { messageId: data.id };
+    } else {
+      info = await transporter.sendMail(mailOptions);
+    }
     console.log(`Email enviado: ${info.messageId}`);
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error('Error enviando email:', error);
+    console.error('Error enviando email:', error.code || error.name);
     return { success: false, error: error.message };
   }
 };
 
 // Verificar configuración de email
 exports.verifyEmailConfig = async () => {
+  if (process.env.RESEND_API_KEY) {
+    console.log('Proveedor HTTPS configurado; la entrega se verifica enviando una tarea de prueba');
+    return true;
+  }
   try {
     await transporter.verify();
     console.log('✓ Configuración de email verificada');

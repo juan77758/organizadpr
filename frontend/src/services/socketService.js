@@ -1,7 +1,9 @@
 import { io } from 'socket.io-client';
+import api from './api';
 import { authService } from './authService';
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL ||
+  new URL(api.defaults.baseURL, window.location.origin).origin;
 
 class SocketService {
   constructor() {
@@ -12,11 +14,19 @@ class SocketService {
     const token = authService.getToken();
     if (!token) return;
 
+    if (this.socket) {
+      if (this.socket.auth.token === token) {
+        this.socket.connect();
+        return this.socket;
+      }
+      this.disconnect();
+    }
+
     this.socket = io(SOCKET_URL, {
       auth: { token },
       reconnection: true,
       reconnectionDelay: 1000,
-      reconnectionAttempts: 5,
+      reconnectionAttempts: Infinity,
     });
 
     this.socket.on('connect', () => {

@@ -1,51 +1,47 @@
 const http = require('http');
 const { Server } = require('socket.io');
+const { frontendUrl, validateRuntime } = require('./config/runtime');
+validateRuntime();
 const app = require('./app');
+const pool = require('./config/database');
 const { verifyEmailConfig } = require('./services/emailService');
 const { setupCronJobs } = require('./services/cronService');
 const setupSocketHandlers = require('./socket/socketHandlers');
+const { createTables } = require('./config/initDatabase');
 
-const PORT = process.env.PORT || 5002;
-
-// Crear servidor HTTP
 const server = http.createServer(app);
-
-// Configurar Socket.IO
-const io = new Server(server, {
-  cors: {
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
-    credentials: true
-  }
-});
-
-// Configurar manejadores de Socket
+const io = new Server(server, { cors: { origin: frontendUrl, credentials: true } });
 setupSocketHandlers(io);
-
-// Configurar tareas cron
-setupCronJobs(io);
-
-// Hacer io accesible en toda la app
 app.set('io', io);
+let stopCron = () => {};
 
-// Iniciar servidor
-server.listen(PORT, async () => {
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
-  console.log(`📡 WebSocket habilitado`);
-  console.log(`🌐 URL: http://localhost:${PORT}`);
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+async function start() {
+  if (process.env.DATABASE_URL) await createTables();
+  stopCron = setupCronJobs(io);
+  server.listen(process.env.PORT || 5002, '0.0.0.0', () => {
+    console.log(`Servidor iniciado en puerto ${process.env.PORT || 5002}`);
+    verifyEmailConfig();
+  });
+}
 
-  // Verificar configuración de email
-  await verifyEmailConfig();
+let shuttingDown = false;
+async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  stopCron();
+  const timeout = setTimeout(() => process.exit(1), 10000);
+  timeout.unref();
+  io.close(async () => {
+    await pool.end?.();
+    clearTimeout(timeout);
+    process.exit(0);
+  });
+}
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+server.on('error', () => { console.error('No se pudo iniciar el servidor HTTP'); process.exit(1); });
+start().catch(async () => {
+  console.error('No se pudo preparar PostgreSQL; revisa DATABASE_URL y los logs de inicialización');
+  await pool.end?.();
+  process.exitCode = 1;
 });
-
-// Manejo de errores no capturados
-process.on('unhandledRejection', (err) => {
-  console.error('Error no manejado:', err);
-});
-
-process.on('uncaughtException', (err) => {
-  console.error('Excepción no capturada:', err);
-  process.exit(1);
-});
-

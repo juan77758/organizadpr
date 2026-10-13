@@ -1,5 +1,7 @@
 # 📋 Sistema Organizador de Actividades con Notificaciones
 
+Para publicar la aplicación con Vercel, Render y PostgreSQL, consulta [DEPLOYMENT.md](DEPLOYMENT.md). El backend usa PostgreSQL cuando se configura `DATABASE_URL`; la base en memoria queda disponible solo para desarrollo local.
+
 MVP de un tablero Kanban para organizar actividades con sistema de alertas por email y notificaciones en tiempo real.
 
 ## 🎨 Características

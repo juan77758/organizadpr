@@ -8,10 +8,17 @@ exports.register = async (req, res, next) => {
 
   try {
     // Validar datos
-    if (!email || !password) {
+    if (typeof email !== 'string' || typeof password !== 'string' || !email || !password) {
       return res.status(400).json({ error: 'Email y contraseña son requeridos' });
     }
 
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 ||
+        (name != null && (typeof name !== 'string' || name.length > 100))) {
+      return res.status(400).json({ error: 'Email o nombre inválido' });
+    }
+    if (Buffer.byteLength(password, 'utf8') > 72) {
+      return res.status(400).json({ error: 'La contraseña es demasiado larga' });
+    }
     if (password.length < 6) {
       return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
     }
@@ -49,6 +56,7 @@ exports.register = async (req, res, next) => {
       }
     });
   } catch (error) {
+    if (error.code === '23505') return res.status(400).json({ error: 'El email ya está registrado' });
     next(error);
   }
 };
@@ -59,7 +67,7 @@ exports.login = async (req, res, next) => {
 
   try {
     // Validar datos
-    if (!email || !password) {
+    if (typeof email !== 'string' || typeof password !== 'string' || !email || !password) {
       return res.status(400).json({ error: 'Email y contraseña son requeridos' });
     }
 

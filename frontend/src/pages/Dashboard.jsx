@@ -10,7 +10,7 @@ const Dashboard = () => {
       <main className="main-content">
         <KanbanBoard />
       </main>
-      <TestNotifications />
+      {import.meta.env.DEV && <TestNotifications />}
     </div>
   );
 };

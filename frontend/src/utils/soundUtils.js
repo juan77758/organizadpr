@@ -1,95 +1,58 @@
-// Generar sonido de alarma usando Web Audio API
-export const playAlarmSound = () => {
+// Reutilizar un contexto activado por una interacción del usuario.
+let audioContext;
+
+export const enableSound = async () => {
   try {
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-
-    // Crear osciladores para un sonido de alarma distintivo
-    const duration = 1.5; // segundos
-    const currentTime = audioContext.currentTime;
-
-    // Primer tono
-    const oscillator1 = audioContext.createOscillator();
-    const gainNode1 = audioContext.createGain();
-
-    oscillator1.connect(gainNode1);
-    gainNode1.connect(audioContext.destination);
-
-    oscillator1.frequency.value = 800; // Hz
-    oscillator1.type = 'sine';
-
-    gainNode1.gain.setValueAtTime(0, currentTime);
-    gainNode1.gain.linearRampToValueAtTime(0.3, currentTime + 0.1);
-    gainNode1.gain.linearRampToValueAtTime(0, currentTime + 0.5);
-
-    oscillator1.start(currentTime);
-    oscillator1.stop(currentTime + 0.5);
-
-    // Segundo tono (más agudo)
-    setTimeout(() => {
-      const oscillator2 = audioContext.createOscillator();
-      const gainNode2 = audioContext.createGain();
-
-      oscillator2.connect(gainNode2);
-      gainNode2.connect(audioContext.destination);
-
-      oscillator2.frequency.value = 1000; // Hz
-      oscillator2.type = 'sine';
-
-      const time = audioContext.currentTime;
-      gainNode2.gain.setValueAtTime(0, time);
-      gainNode2.gain.linearRampToValueAtTime(0.3, time + 0.1);
-      gainNode2.gain.linearRampToValueAtTime(0, time + 0.5);
-
-      oscillator2.start(time);
-      oscillator2.stop(time + 0.5);
-    }, 500);
-
-    // Tercer tono (repetición del primero)
-    setTimeout(() => {
-      const oscillator3 = audioContext.createOscillator();
-      const gainNode3 = audioContext.createGain();
-
-      oscillator3.connect(gainNode3);
-      gainNode3.connect(audioContext.destination);
-
-      oscillator3.frequency.value = 800; // Hz
-      oscillator3.type = 'sine';
-
-      const time = audioContext.currentTime;
-      gainNode3.gain.setValueAtTime(0, time);
-      gainNode3.gain.linearRampToValueAtTime(0.3, time + 0.1);
-      gainNode3.gain.linearRampToValueAtTime(0, time + 0.5);
-
-      oscillator3.start(time);
-      oscillator3.stop(time + 0.5);
-    }, 1000);
-
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return false;
+    if (!audioContext || audioContext.state === 'closed') {
+      audioContext = new AudioContext();
+    }
+    if (audioContext.state === 'suspended') {
+      await audioContext.resume();
+    }
+    return audioContext.state === 'running';
   } catch (error) {
-    console.error('Error reproduciendo sonido:', error);
+    console.error('No se pudo activar el sonido:', error);
+    return false;
   }
 };
 
-// Sonido de notificación suave (para notificaciones normales)
-export const playNotificationSound = () => {
+// El navegador puede bloquear audio iniciado por un evento de WebSocket.
+// Activarlo desde un clic o una tecla permite usarlo en avisos posteriores.
+if (typeof window !== 'undefined') {
+  window.addEventListener('pointerdown', enableSound, { capture: true });
+  window.addEventListener('keydown', enableSound, { capture: true });
+}
+
+const playTones = async (frequencies, volume) => {
+  if (!(await enableSound())) return false;
   try {
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const oscillator = audioContext.createOscillator();
-    const gainNode = audioContext.createGain();
-
-    oscillator.connect(gainNode);
-    gainNode.connect(audioContext.destination);
-
-    oscillator.frequency.value = 600;
-    oscillator.type = 'sine';
-
-    const currentTime = audioContext.currentTime;
-    gainNode.gain.setValueAtTime(0, currentTime);
-    gainNode.gain.linearRampToValueAtTime(0.2, currentTime + 0.05);
-    gainNode.gain.linearRampToValueAtTime(0, currentTime + 0.3);
-
-    oscillator.start(currentTime);
-    oscillator.stop(currentTime + 0.3);
+    const start = audioContext.currentTime;
+    frequencies.forEach((frequency, index) => {
+      const time = start + index * 0.5;
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      oscillator.connect(gain);
+      gain.connect(audioContext.destination);
+      oscillator.type = 'sine';
+      oscillator.frequency.value = frequency;
+      gain.gain.setValueAtTime(0, time);
+      gain.gain.linearRampToValueAtTime(volume, time + 0.05);
+      gain.gain.linearRampToValueAtTime(0, time + 0.4);
+      oscillator.onended = () => {
+        oscillator.disconnect();
+        gain.disconnect();
+      };
+      oscillator.start(time);
+      oscillator.stop(time + 0.4);
+    });
+    return true;
   } catch (error) {
     console.error('Error reproduciendo sonido:', error);
+    return false;
   }
 };
+
+export const playAlarmSound = () => playTones(Array(3).fill([800, 1000, 800]).flat(), 0.3);
+export const playNotificationSound = () => playTones([600], 0.2);

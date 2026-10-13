@@ -1,0 +1,51 @@
+# Plantilla: no crea recursos hasta que el usuario la aplique en Render.
+# Starter y PostgreSQL Basic son servicios de pago; revisar el precio en Render.
+services:
+  - type: web
+    name: organizador-api
+    runtime: node
+    plan: starter
+    region: oregon
+    rootDir: backend
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /ready
+    numInstances: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 24
+      - key: DATABASE_URL
+        fromDatabase:
+          name: organizador-db
+          property: connectionString
+      # La URL interna de Render se utiliza en la misma región y red privada.
+      - key: DB_SSL
+        value: "false"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: FRONTEND_URL
+        sync: false
+      - key: APP_URL
+        sync: false
+      - key: APP_TIME_ZONE
+        value: America/Mexico_City
+      - key: EMAIL_SERVICE
+        value: gmail
+      - key: EMAIL_FROM
+        sync: false
+      - key: EMAIL_USER
+        sync: false
+      - key: EMAIL_PASSWORD
+        sync: false
+
+databases:
+  - name: organizador-db
+    plan: basic-256mb
+    region: oregon
+    databaseName: organizador
+    user: organizador
+    postgresMajorVersion: "16"

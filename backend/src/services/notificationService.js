@@ -1,193 +1,129 @@
 const pool = require('../config/database');
 const { sendReminderEmail } = require('./emailService');
 
-// Crear notificación en la base de datos
+const schedules = {
+  imminent: { interval: '10 minutes', urgent: true },
+  email_24h: { interval: '23 hours', urgent: false },
+  overdue: { interval: '1 day', urgent: false }
+};
+let running = false;
+
+// Un solo proceso a la vez, incluso durante un redeploy con dos instancias.
+async function exclusive(work) {
+  if (running) return;
+  running = true;
+  let client;
+  let locked = false;
+  try {
+    if (pool.connect) {
+      client = await pool.connect();
+      const result = await client.query('SELECT pg_try_advisory_lock($1) AS locked', [704291]);
+      locked = result.rows[0].locked;
+      if (!locked) return;
+    }
+    return await work();
+  } finally {
+    try {
+      if (locked) await client.query('SELECT pg_advisory_unlock($1)', [704291]);
+    } finally {
+      client?.release();
+      running = false;
+    }
+  }
+}
+
 exports.createNotification = async (userId, activityId, type, message) => {
+  const result = await pool.query(
+    `INSERT INTO notifications (user_id, activity_id, type, message, sent_at, email_status)
+     VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, $5) RETURNING *`,
+    [userId, activityId, type, message, type === 'overdue' || type === 'test' ? 'none' : 'pending']
+  );
+  return result.rows[0];
+};
+
+async function deliver(notification, activity) {
+  let outcome;
   try {
+    outcome = await sendReminderEmail(activity.email, activity.user_name, activity, notification.id);
+  } catch {
+    outcome = { success: false };
+  }
+  if (pool.connect) {
+    await pool.query(
+      `UPDATE notifications SET email_status = $1,
+       email_attempts = email_attempts + 1,
+       email_next_attempt_at = CURRENT_TIMESTAMP + INTERVAL '1 minute'
+       WHERE id = $2`,
+      [outcome.success ? 'sent' : 'failed', notification.id]
+    );
+  }
+  console.log(outcome.success ? 'Correo aceptado por el proveedor'
+    : pool.connect ? 'Correo pendiente de reintento' : 'Correo no enviado');
+}
+
+async function pendingEmails() {
+  if (!pool.connect) return;
+  const result = await pool.query(
+    `SELECT n.id AS notification_id, a.*, u.email, u.name AS user_name
+     FROM notifications n
+     JOIN activities a ON a.id = n.activity_id
+     JOIN users u ON u.id = n.user_id
+     WHERE n.email_status IN ('pending', 'failed')
+       AND n.email_attempts < 5
+       AND (n.email_next_attempt_at IS NULL OR n.email_next_attempt_at <= CURRENT_TIMESTAMP)
+       AND n.created_at > CURRENT_TIMESTAMP - INTERVAL '1 day'
+       AND a.status != 'completado'
+     ORDER BY n.created_at ASC LIMIT 100`
+  );
+  for (const activity of result.rows) {
+    await deliver({ id: activity.notification_id }, activity);
+  }
+}
+
+async function processActivities(type, io) {
+  return exclusive(async () => {
+    const now = new Date();
+    const schedule = schedules[type];
+    let bounds;
+    let dates;
+    if (type === 'imminent') {
+      bounds = 'a.due_date BETWEEN $1 AND $2';
+      dates = [new Date(now.getTime() - 300000), new Date(now.getTime() + 300000)];
+    } else if (type === 'email_24h') {
+      bounds = 'a.due_date BETWEEN $1 AND $2';
+      dates = [new Date(now.getTime() + 300000), new Date(now.getTime() + 86400000)];
+    } else {
+      bounds = 'a.due_date < $1';
+      dates = [now];
+    }
     const result = await pool.query(
-      `INSERT INTO notifications (user_id, activity_id, type, message, sent_at)
-       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-       RETURNING *`,
-      [userId, activityId, type, message]
-    );
-
-    return result.rows[0];
-  } catch (error) {
-    console.error('Error creando notificación:', error);
-    throw error;
-  }
-};
-
-// Procesar recordatorios de actividades
-exports.processReminders = async (io) => {
-  try {
-    const now = new Date();
-    const twentyFourHoursLater = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-
-    // Buscar actividades que vencen en 24 horas y no han sido notificadas
-    const activities = await pool.query(
-      `SELECT a.*, u.email, u.name as user_name
-       FROM activities a
-       JOIN users u ON a.user_id = u.id
-       WHERE a.status != 'completado'
-       AND a.due_date BETWEEN $1 AND $2
+      `SELECT a.*, u.email, u.name AS user_name
+       FROM activities a JOIN users u ON a.user_id = u.id
+       WHERE a.status != 'completado' AND ${bounds}
        AND NOT EXISTS (
-         SELECT 1 FROM notifications n
-         WHERE n.activity_id = a.id
-         AND n.type = 'email_24h'
-         AND n.sent_at > CURRENT_TIMESTAMP - INTERVAL '23 hours'
-       )`,
-      [now, twentyFourHoursLater]
+         SELECT 1 FROM notifications n WHERE n.activity_id = a.id
+         AND n.type = '${type}'
+         AND n.sent_at > CURRENT_TIMESTAMP - INTERVAL '${schedule.interval}'
+       )`, dates
     );
-
-    for (const activity of activities.rows) {
-      // Enviar email
-      await sendReminderEmail(activity.email, activity.user_name, activity);
-
-      // Crear notificación en BD
-      const message = `Tu actividad "${activity.title}" vence en menos de 24 horas`;
-      const notification = await this.createNotification(
-        activity.user_id,
-        activity.id,
-        'email_24h',
-        message
-      );
-
-      // Emitir notificación por WebSocket
-      if (io) {
-        io.to(`user_${activity.user_id}`).emit('new_notification', notification);
-      }
+    for (const activity of result.rows) {
+      const message = type === 'imminent'
+        ? `🚨 ¡URGENTE! Tu actividad "${activity.title}" vence pronto`
+        : type === 'overdue'
+          ? `⚠️ Tu actividad "${activity.title}" está vencida`
+          : `Tu actividad "${activity.title}" vence en menos de 24 horas`;
+      // Guardar y emitir el aviso antes de contactar al proveedor de correo.
+      const notification = await exports.createNotification(activity.user_id, activity.id, type, message);
+      io?.to(`user_${activity.user_id}`).emit('new_notification', {
+        ...notification, urgent: schedule.urgent, playSound: schedule.urgent
+      });
+      if (type !== 'overdue') await deliver(notification, activity);
     }
-
-    console.log(`✓ Procesados ${activities.rows.length} recordatorios`);
-  } catch (error) {
-    console.error('Error procesando recordatorios:', error);
-  }
-};
-
-// Buscar actividades vencidas
-exports.processOverdueActivities = async (io) => {
-  try {
-    const now = new Date();
-
-    const activities = await pool.query(
-      `SELECT a.*, u.email, u.name as user_name
-       FROM activities a
-       JOIN users u ON a.user_id = u.id
-       WHERE a.status != 'completado'
-       AND a.due_date < $1
-       AND NOT EXISTS (
-         SELECT 1 FROM notifications n
-         WHERE n.activity_id = a.id
-         AND n.type = 'overdue'
-         AND n.sent_at > CURRENT_TIMESTAMP - INTERVAL '1 day'
-       )`,
-      [now]
-    );
-
-    for (const activity of activities.rows) {
-      const message = `⚠️ Tu actividad "${activity.title}" está vencida`;
-      const notification = await this.createNotification(
-        activity.user_id,
-        activity.id,
-        'overdue',
-        message
-      );
-
-      // Emitir notificación por WebSocket
-      if (io) {
-        io.to(`user_${activity.user_id}`).emit('new_notification', notification);
-      }
-    }
-
-    console.log(`✓ Procesadas ${activities.rows.length} actividades vencidas`);
-  } catch (error) {
-    console.error('Error procesando actividades vencidas:', error);
-  }
-};
-
-// Procesar actividades que vencen en los próximos 5 minutos
-exports.processImminentActivities = async (io) => {
-  try {
-    const now = new Date();
-    const fiveMinutesLater = new Date(now.getTime() + 5 * 60 * 1000);
-    const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
-
-    console.log('🔔 Revisando actividades inminentes...');
-    console.log(`   Hora del servidor (UTC): ${now.toISOString()}`);
-    console.log(`   Hora local: ${now.toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })}`);
-    console.log(`   Ventana: ${fiveMinutesAgo.toISOString()} a ${fiveMinutesLater.toISOString()}`);
-
-    // Primero veamos TODAS las actividades sin filtro de fecha
-    const allActivities = await pool.query(
-      `SELECT a.*, u.email, u.name as user_name
-       FROM activities a
-       JOIN users u ON a.user_id = u.id
-       WHERE a.status != 'completado'`
-    );
-
-    console.log(`   Total actividades NO completadas: ${allActivities.rows.length}`);
-    allActivities.rows.forEach(act => {
-      console.log(`   📋 Actividad: "${act.title}" - Due: ${act.due_date} (${new Date(act.due_date).toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })})`);
-    });
-
-    // Buscar actividades que vencen en los próximos 5 minutos O que vencieron hace menos de 5 minutos
-    const activities = await pool.query(
-      `SELECT a.*, u.email, u.name as user_name
-       FROM activities a
-       JOIN users u ON a.user_id = u.id
-       WHERE a.status != 'completado'
-       AND a.due_date BETWEEN $1 AND $2
-       AND NOT EXISTS (
-         SELECT 1 FROM notifications n
-         WHERE n.activity_id = a.id
-         AND n.type = 'imminent'
-         AND n.sent_at > CURRENT_TIMESTAMP - INTERVAL '10 minutes'
-       )`,
-      [fiveMinutesAgo, fiveMinutesLater]
-    );
-
-    console.log(`   Encontradas en ventana: ${activities.rows.length} actividades`);
-
-    for (const activity of activities.rows) {
-      console.log(`   📋 Procesando: ${activity.title} (vence: ${activity.due_date})`);
-
-      // Enviar email
-      try {
-        await sendReminderEmail(activity.email, activity.user_name, activity);
-        console.log(`   ✓ Email enviado a ${activity.email}`);
-      } catch (emailError) {
-        console.error(`   ✗ Error enviando email:`, emailError.message);
-      }
-
-      // Crear notificación en BD
-      const message = `🚨 ¡URGENTE! Tu actividad "${activity.title}" vence pronto`;
-      const notification = await this.createNotification(
-        activity.user_id,
-        activity.id,
-        'imminent',
-        message
-      );
-
-      console.log(`   ✓ Notificación creada en BD`);
-
-      // Emitir notificación por WebSocket con bandera de alarma
-      if (io) {
-        io.to(`user_${activity.user_id}`).emit('new_notification', {
-          ...notification,
-          playSound: true,
-          urgent: true
-        });
-        console.log(`   ✓ WebSocket emitido`);
-      }
-
-      console.log(`🔔 Notificación urgente enviada para: ${activity.title}`);
-    }
-
-    if (activities.rows.length > 0) {
-      console.log(`✓ Procesadas ${activities.rows.length} actividades inminentes`);
-    }
-  } catch (error) {
-    console.error('Error procesando actividades inminentes:', error);
-  }
-};
+    if (type === 'imminent') await pendingEmails();
+    return result.rows.length;
+  });
+}
+exports.processImminentActivities = io => processActivities('imminent', io);
+exports.processReminders = io => processActivities('email_24h', io);
+exports.processOverdueActivities = io => processActivities('overdue', io);
+exports.processPendingEmails = () => exclusive(pendingEmails);
