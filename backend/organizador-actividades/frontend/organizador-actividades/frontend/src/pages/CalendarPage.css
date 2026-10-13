@@ -1,0 +1,162 @@
+.calendar-page {
+  min-height: 100vh;
+  background-color: var(--color-black);
+}
+
+.main-content {
+  padding: 30px 20px;
+}
+
+.calendar-container {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.calendar-container h2 {
+  color: var(--color-gold);
+  margin-bottom: 30px;
+  font-size: 28px;
+}
+
+.calendar-wrapper {
+  display: grid;
+  grid-template-columns: 1fr 350px;
+  gap: 30px;
+}
+
+.custom-calendar {
+  background-color: var(--color-medium-gray);
+  border: 2px solid var(--color-gold);
+  border-radius: var(--border-radius-lg);
+  padding: 20px;
+  width: 100%;
+}
+
+.custom-calendar .react-calendar__tile {
+  color: var(--color-text-primary);
+  background: var(--color-dark-gray);
+  border-radius: var(--border-radius);
+  padding: 15px;
+  position: relative;
+}
+
+.custom-calendar .react-calendar__tile:enabled:hover {
+  background-color: var(--color-light-gray);
+}
+
+.custom-calendar .react-calendar__tile--active {
+  background-color: var(--color-gold) !important;
+  color: var(--color-black) !important;
+  font-weight: bold;
+}
+
+.custom-calendar .react-calendar__navigation button {
+  color: var(--color-gold);
+  font-size: 16px;
+  font-weight: bold;
+}
+
+.custom-calendar .react-calendar__navigation button:enabled:hover {
+  background-color: var(--color-light-gray);
+}
+
+.calendar-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  background-color: var(--color-gold);
+  color: var(--color-black);
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: bold;
+}
+
+.activities-sidebar {
+  background-color: var(--color-medium-gray);
+  border: 1px solid var(--color-light-gray);
+  border-radius: var(--border-radius-lg);
+  padding: 20px;
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.activities-sidebar h3 {
+  color: var(--color-gold);
+  margin-bottom: 20px;
+  font-size: 18px;
+}
+
+.no-activities {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: 40px 20px;
+}
+
+.activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.calendar-activity-card {
+  background-color: var(--color-dark-gray);
+  border: 1px solid var(--color-light-gray);
+  border-radius: var(--border-radius);
+  padding: 15px;
+}
+
+.calendar-activity-card h4 {
+  color: var(--color-gold);
+  margin-bottom: 8px;
+  font-size: 16px;
+}
+
+.calendar-activity-card p {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+
+.activity-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.status-badge {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: bold;
+  text-transform: uppercase;
+}
+
+.status-pendiente {
+  background-color: #ff4444;
+  color: white;
+}
+
+.status-en_proceso {
+  background-color: #ffbb33;
+  color: black;
+}
+
+.status-completado {
+  background-color: #00C851;
+  color: white;
+}
+
+@media (max-width: 1024px) {
+  .calendar-wrapper {
+    grid-template-columns: 1fr;
+  }
+
+  .activities-sidebar {
+    max-height: none;
+  }
+}
